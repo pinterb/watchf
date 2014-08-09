@@ -8,11 +8,12 @@ import (
 	"os/signal"
 	"strings"
 
-	"github.com/parkghost/watchf/daemon"
+	"github.com/pinterb/watchf/daemon"
 )
 
+// Some contants
 const (
-	Version         = "0.4.1"
+	Version         = "0.4.2"
 	Program         = "watchf"
 	ContinueOnError = false
 )
@@ -42,8 +43,8 @@ func init() {
 
 		maxLen := maxLenOfEventName()
 		fmt.Println("Events:")
-		for _, e := range GeneralEventBits {
-			fmt.Printf("  %s  %s\n", PaddingLeft(strings.ToLower(e.Name), maxLen, " "), e.Desc)
+		for _, eventBit := range ValidEvents {
+			fmt.Printf("  %s  %s\n", PaddingLeft(strings.ToLower(eventBit.Name), maxLen, " "), eventBit.Desc)
 		}
 
 		fmt.Printf("Variables:\n"+
@@ -57,9 +58,9 @@ func init() {
 
 func maxLenOfEventName() int {
 	maxLenOfName := 0
-	for _, event := range GeneralEventBits {
-		if maxLenOfName < len(event.Name) {
-			maxLenOfName = len(event.Name)
+	for _, eventBit := range ValidEvents {
+		if maxLenOfName < len(eventBit.Name) {
+			maxLenOfName = len(eventBit.Name)
 		}
 	}
 	return maxLenOfName

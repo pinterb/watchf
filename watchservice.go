@@ -13,15 +13,50 @@ import (
 )
 
 const (
-	EventBufSize = 1024 * 1024
+	eventBufSize = 1024 * 1024
+	fsnCreate    = 1
+	fsnModify    = 2
+	fsnDelete    = 4
+	fsnRename    = 8
+
+	fsnAll = fsnModify | fsnDelete | fsnRename | fsnRename
 )
 
+// EventBit is a simple way to track what filesytem events are valid.
+type EventBit struct {
+	Name  string
+	Value uint32
+	Desc  string
+}
+
+// CreateEvent is used to represent a fsnotify "create" event
+var CreateEvent = EventBit{Name: "create", Value: fsnCreate, Desc: "File/directory created in watched directory"}
+
+// DeleteEvent is used to represent a fsnotify "delete" event
+var DeleteEvent = EventBit{Name: "delete", Value: fsnDelete, Desc: "File/directory deleted from watched directory"}
+
+// ModifyEvent is used to represent a fsnotify "modify or attrib" event
+var ModifyEvent = EventBit{Name: "modify", Value: fsnModify, Desc: "File was modified or Metadata changed"}
+
+// RenameEvent is used to represent a fsnotify "rename" event
+var RenameEvent = EventBit{Name: "rename", Value: fsnRename, Desc: "File moved out of watched directory"}
+var allEvent = EventBit{Value: fsnAll, Desc: "Create/Delete/Modify/Rename"}
+
+// ValidEvents map those fsnotify events that can be watched
+var ValidEvents = map[string]EventBit{
+	"create": CreateEvent,
+	"delete": DeleteEvent,
+	"modify": ModifyEvent,
+	"rename": RenameEvent,
+}
+
+// WatchService encapsulates all thats required to perform the 'watchf' operation
 type WatchService struct {
 	path   string
 	config *Config
 
 	watcher              *fsnotify.Watcher
-	watchFlags           uint32
+	watchFlags           map[string]EventBit
 	includePatternRegexp *regexp.Regexp
 
 	executor *Executor
@@ -30,8 +65,9 @@ type WatchService struct {
 	entries map[string]*FileEntry
 }
 
+// NewWatchService creates a new WatchService.
 func NewWatchService(path string, config *Config) (service *WatchService, err error) {
-	watchFlags, err := calculateWatchFlags(config.Events)
+	watchFlags, err := validateWatchFlags(config.Events)
 	if err != nil {
 		return
 	}
@@ -54,41 +90,57 @@ func NewWatchService(path string, config *Config) (service *WatchService, err er
 	return
 }
 
-func calculateWatchFlags(events []string) (watchFlags uint32, err error) {
-	Logln("watching events:")
-	for _, event := range events {
-		found := false
-		for _, item := range GeneralEventBits {
-			if strings.ToLower(event) == strings.ToLower(item.Name) {
-				Logf("  %s\n", item.Name)
-				watchFlags = watchFlags | item.Value
-				found = true
-			}
-		}
+func validateWatchFlags(events []string) (watchedEvents map[string]EventBit, err error) {
+	Logln("validating watch flags:")
 
-		if !found {
-			err = fmt.Errorf("the event %s was not found", event)
+	var watchedFlags map[string]EventBit
+
+	// confirm that some events were asked to be watched
+	if len(events) == 0 {
+		err = fmt.Errorf("%s events is simply not enough", "zero")
+		return
+	}
+
+	// and they are valid events
+	containsAll := false
+	for _, event := range events {
+		var eevent = strings.ToLower(event)
+		_, ok := ValidEvents[eevent]
+
+		if eevent == "all" {
+			containsAll = true
+		} else if !ok {
+			err = fmt.Errorf("the event %s was not found", eevent)
 			return
 		}
 	}
 
-	return
+	// populate our map of watched events
+	if containsAll {
+		watchedFlags = ValidEvents
+	} else {
+		watchedFlags = make(map[string]EventBit)
+		for _, event := range events {
+			var lcEvent = strings.ToLower(event)
+			switch {
+			case lcEvent == CreateEvent.Name:
+				watchedFlags[CreateEvent.Name] = CreateEvent
+			case lcEvent == DeleteEvent.Name:
+				watchedFlags[DeleteEvent.Name] = DeleteEvent
+			case lcEvent == ModifyEvent.Name:
+				watchedFlags[ModifyEvent.Name] = ModifyEvent
+			case lcEvent == RenameEvent.Name:
+				watchedFlags[RenameEvent.Name] = RenameEvent
+			}
+		}
+	}
+
+	return watchedFlags, nil
 }
 
-var GeneralEventBits = []struct {
-	Value uint32
-	Name  string
-	Desc  string
-}{
-	{fsnotify.FSN_ALL, "all", "Create/Delete/Modify/Rename"},
-	{fsnotify.FSN_CREATE, "create", "File/directory created in watched directory"},
-	{fsnotify.FSN_DELETE, "delete", "File/directory deleted from watched directory"},
-	{fsnotify.FSN_MODIFY, "modify", "File was modified or Metadata changed"},
-	{fsnotify.FSN_RENAME, "rename", "File moved out of watched directory"},
-}
-
+// Start the WatchService
 func (w *WatchService) Start() (err error) {
-	events := make(chan *fsnotify.FileEvent, EventBufSize)
+	events := make(chan *fsnotify.FileEvent, eventBufSize)
 	w.startWatcher(events) // events producer
 	w.startWorker(events)  // events consumer
 	return
@@ -133,7 +185,7 @@ func (w *WatchService) watchFolders() (err error) {
 				if errPath == nil {
 					w.dirs[relativePath] = true
 					Logln("watching: ", relativePath)
-					errWatcher := w.watcher.WatchFlags(path, w.watchFlags)
+					errWatcher := w.watcher.Watch(path)
 					if errWatcher != nil {
 						return errWatcher
 					}
@@ -145,7 +197,7 @@ func (w *WatchService) watchFolders() (err error) {
 			return nil
 		})
 	} else {
-		err = w.watcher.WatchFlags(w.path, w.watchFlags)
+		err = w.watcher.Watch(w.path)
 	}
 	return
 }
@@ -159,23 +211,25 @@ func (w *WatchService) startWorker(events <-chan *fsnotify.FileEvent) {
 			w.syncWatchersAndCaches(evt)
 
 			if checkPatternMatching(w.includePatternRegexp, evt) {
-				if checkExecInterval(lastExec, w.config.Interval, time.Now()) {
-					if w.isDir(evt.Name) {
-						lastExec = time.Now()
-						w.run(evt)
-					} else {
-						// ignore file attributes changed
-						if evt.IsModify() && !checkFileContentChanged(w.entries, evt.Name) {
-							continue
+				if checkEventType(w.watchFlags, evt) {
+					if checkExecInterval(lastExec, w.config.Interval, time.Now()) {
+						if w.isDir(evt.Name) {
+							lastExec = time.Now()
+							w.run(evt)
+						} else {
+							// ignore file attributes changed
+							if evt.IsModify() && !checkFileContentChanged(w.entries, evt.Name) {
+								continue
+							}
+							lastExec = time.Now()
+							w.run(evt)
 						}
-						lastExec = time.Now()
-						w.run(evt)
+					} else {
+						Logf("%s: %s dropped", getEventType(evt), evt.Name)
 					}
-				} else {
-					Logf("%s: %s dropped", getEventType(evt), evt.Name)
-				}
-			}
-		}
+				} // if event match
+			} // if pattern match
+		} // for each event
 	}()
 }
 
@@ -206,7 +260,7 @@ func (w *WatchService) syncWatchersAndCaches(evt *fsnotify.FileEvent) {
 			if stat.IsDir() {
 				Logln("watching: ", path)
 				w.dirs[path] = true
-				w.watcher.WatchFlags(path, w.watchFlags)
+				w.watcher.Watch(path)
 			}
 		}
 
@@ -242,6 +296,7 @@ func (w *WatchService) run(evt *fsnotify.FileEvent) {
 	}
 }
 
+// Stop the WatchService
 func (w *WatchService) Stop() error {
 	return w.watcher.Close()
 }

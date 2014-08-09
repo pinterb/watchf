@@ -12,10 +12,13 @@ import (
 )
 
 const (
-	VarFilename  = "%f"
+	// VarFilename is used for printing file names
+	VarFilename = "%f"
+	// VarEventType is used for printing event types
 	VarEventType = "%t"
 )
 
+// Executor struct models the command(s) to be executed by our watcher
 type Executor struct {
 	Stdout io.Writer
 	Stderr io.Writer
@@ -35,6 +38,8 @@ func (e *Executor) execute(command string, evt *fsnotify.FileEvent) error {
 	cmd.Stdout = e.Stdout
 
 	msg := fmt.Sprintf("exec: \"%s %s\"", cmd.Args[0], strings.Join(cmd.Args[1:], " "))
+	log.Println(ansi.Color("", "cyan+b"))
+	log.Println(ansi.Color(evt.String(), "cyan+b"))
 	log.Println(ansi.Color(msg, "cyan+b"))
 	err := cmd.Run()
 

@@ -13,6 +13,7 @@ var (
 	defaultConfig = &Config{Version: Version, Events: []string{"all"}, Commands: []string{}}
 )
 
+// Config models the configuration for watchf
 type Config struct {
 	Recursive      bool
 	Events         CommaStringSet
@@ -22,6 +23,12 @@ type Config struct {
 	Version        string
 }
 
+// StringSet is a simple string array
+type StringSet []string
+
+// CommaStringSet is a string array (for comma delimited strings)
+type CommaStringSet []string
+
 func init() {
 	flag.BoolVar(&defaultConfig.Recursive, "r", false, "Watch directories recursively")
 	flag.StringVar(&defaultConfig.IncludePattern, "p", ".*", "File name matches regular expression pattern (perl-style)")
@@ -30,10 +37,12 @@ func init() {
 	flag.Var(&defaultConfig.Commands, "c", "Add arbitrary command (repeatable)")
 }
 
+// GetDefaultConfig returns a pointer to default configuration
 func GetDefaultConfig() *Config {
 	return defaultConfig
 }
 
+// WriteConfigToFile will persist a Config
 func WriteConfigToFile(config *Config) (err error) {
 	rawdata, err := json.MarshalIndent(&config, "", "	")
 	if err != nil {
@@ -43,6 +52,7 @@ func WriteConfigToFile(config *Config) (err error) {
 	return
 }
 
+// LoadConfigFromFile creates a Config from a persisted configuration file
 func LoadConfigFromFile() (newConfig *Config, err error) {
 	// TODO: check compatibility
 	newConfig = &Config{}
@@ -54,23 +64,23 @@ func LoadConfigFromFile() (newConfig *Config, err error) {
 	return
 }
 
-type StringSet []string
-
+// String formats StringSet
 func (f *StringSet) String() string {
 	return fmt.Sprint([]string(*f))
 }
 
+// Set will append a string value to a StringSet
 func (f *StringSet) Set(value string) error {
 	*f = append(*f, value)
 	return nil
 }
 
-type CommaStringSet []string
-
+// String formats CommaStringSet
 func (f *CommaStringSet) String() string {
 	return fmt.Sprint([]string(*f))
 }
 
+// Set will parse a comma delimited string into a CommaStringSet
 func (f *CommaStringSet) Set(value string) error {
 	*f = strings.Split(strings.Replace(value, " ", "", -1), ",")
 	return nil

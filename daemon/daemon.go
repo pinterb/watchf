@@ -8,6 +8,7 @@ import (
 	"strconv"
 )
 
+// Daemon models a generic daemon
 type Daemon struct {
 	name       string
 	pid        int
@@ -16,15 +17,18 @@ type Daemon struct {
 	service    Service
 }
 
+// Service is managed by the Daemon
 type Service interface {
 	Start() error
 	Stop() error
 }
 
+// NewDaemon creates a pointer to a new Daemon
 func NewDaemon(name string, service Service) *Daemon {
 	return &Daemon{name: name, service: service}
 }
 
+// Start the Daemon
 func (d *Daemon) Start() (err error) {
 	if d.IsRunning() {
 		return errors.New(d.name + " is already running")
@@ -46,6 +50,7 @@ func (d *Daemon) getPidFilename() string {
 	return "." + d.name + ".pid"
 }
 
+// IsRunning indicates the status of the Daemon
 func (d *Daemon) IsRunning() bool {
 	if d.running {
 		return true
@@ -68,6 +73,7 @@ func (d *Daemon) readPidFromFile(filename string) (pid int, err error) {
 	return
 }
 
+// Stop the Daemon
 func (d *Daemon) Stop() (err error) {
 	if !d.IsRunning() {
 		return errors.New(d.name + " does not exist")
@@ -106,6 +112,7 @@ func (d *Daemon) Stop() (err error) {
 	return
 }
 
+// GetPid returns the Daemon's pid
 func (d *Daemon) GetPid() int {
 	return d.pid
 }

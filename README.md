@@ -1,4 +1,4 @@
-Watchf(v0.4.1)
+Watchf(v0.4.2)
 -------
 *Watchf is a tool for watching directory changes and run commands*
 
